@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run sync simulation tests
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lua5.3
+          lua5.3 tests/sync_sim.lua ForeverBlacklist | tee test.log
+          grep -q "ALL TESTS PASSED" test.log
+      - name: Zip addon
+        run: zip -r "ForeverBlacklist-${GITHUB_REF_NAME}.zip" ForeverBlacklist
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "ForeverBlacklist-${GITHUB_REF_NAME}.zip" --generate-notes
