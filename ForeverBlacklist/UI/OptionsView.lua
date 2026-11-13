@@ -108,6 +108,10 @@ function View.Create(f)
     d:Check("Enable sync", "syncEnabled", "Share entries and sightings with other Forever Blacklist users.")
     d:Check("Sync with guild", "syncGuild")
     d:Check("Sync with party / raid", "syncGroup")
+    d:Check("Auto-sync with mutual trust", "syncWhisperTrusted",
+        "Players you trust who also trust you sync directly by whisper - on login and live - no guild, group, channel or request needed.",
+        function(v) if v then FBL.Comm.HelloTrusted() end end)
+    d:Check("Mutual trust skips Inbox", "autoAcceptMutual", "Entries from mutually trusted players are added straight away.")
     d:Check("Use a shared channel", "syncChannelEnabled", "Joins a hidden chat channel so friends across guilds can share.", function(v)
         if v then FBL.Comm.JoinChannel() else FBL.Comm.LeaveChannel() end
     end)

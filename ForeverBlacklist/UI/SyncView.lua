@@ -26,10 +26,15 @@ local function createPeerRow(row)
 end
 
 local function initPeerRow(row, p)
-    local fresh = (p.lastSeen or 0) > FBL.Now() - 900
-    row.dot:SetVertexColor(fresh and 0.3 or 0.4, fresh and 0.9 or 0.4, fresh and 0.4 or 0.4)
     local trusted = FBL.IsTrusted(p.name)
-    row.name:SetText(FBL.ShortName(p.name) .. (trusted and "  |cff40ff40trusted|r" or "") .. (p.guildmate and "  |cff40c0ffguild|r" or ""))
+    local badge = ""
+    if trusted and p.trustsMe then badge = "  |cff40ff40mutual trust - auto-sync|r"
+    elseif trusted then badge = "  |cffffd100trusted (waiting for them to trust you)|r"
+    elseif p.trustsMe then badge = "  |cff40c0fftrusts you|r" end
+    local live = select(2, FBL.NormalizeName(p.name or ""))
+    live = live and FBL.Comm.online[live]
+    row.dot:SetVertexColor(live and 0.3 or 0.4, live and 0.9 or 0.4, live and 0.4 or 0.4)
+    row.name:SetText(FBL.ShortName(p.name) .. badge .. (p.guildmate and "  |cff40c0ffguild|r" or ""))
     row.meta:SetText(("v%s  -  %s entries  -  seen %s via %s"):format(p.version or "?", p.count or "?",
         FBL.TimeAgo(p.lastSeen), (p.via or "?"):lower()))
     row.trust.text:SetText(trusted and "Untrust" or "Trust")
@@ -156,6 +161,12 @@ function View.Refresh(f)
     for k, name in pairs(FBL.db.trusted) do
         if not seen[k] then list[#list + 1] = { name = name } end
     end
+    local mutual = 0
+    for k in pairs(FBL.db.trusted) do
+        local p = FBL.db.peers[k]
+        if p and p.trustsMe then mutual = mutual + 1 end
+    end
+    f.stats:SetText(f.stats:GetText() .. ("   |   %d mutual trust%s"):format(mutual, mutual == 1 and "" or "s"))
     table.sort(list, function(a, b) return (a.lastSeen or 0) > (b.lastSeen or 0) end)
     f.peers:SetItems(list)
     f.noPeers:SetShown(#list == 0)

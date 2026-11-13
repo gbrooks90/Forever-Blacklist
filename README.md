@@ -24,6 +24,7 @@ A shared, synced blacklist for **World of Warcraft: Forever**. You can record wh
 - Syncs automatically with **guild** and **party/raid** members who run the addon.
 - An optional **shared hidden channel** (default `FBLSync`) lets friends in different guilds share one list.
 - **Live updates**: new entries, edits and sightings go out as they happen. On login the addon pulls only what changed since your last sync.
+- **Mutual trust auto-sync**: when two players trust each other (right-click → *Trust for sync*, or the Sync tab), they sync directly by whisper with no shared guild, group or channel needed. This happens on login and live as entries change. Their entries skip the Inbox, and the Sync tab marks them *mutual trust*.
 - **Trust controls**: you can accept from *Everyone*, *Guild, friends & trusted* or *Trusted only*.
 - **Review inbox**: new entries from other players wait for you to Accept or Reject them.
 - A removal is only honoured when it comes from the person who added the entry or from someone you trust.
@@ -63,8 +64,9 @@ All messages use the addon prefix `FBLv1`. They are compressed when the client s
 
 1. On login, each client says hello on guild, group and the shared channel. The hello includes a timestamp of its newest data.
 2. If a peer has newer data than you last synced from them, you whisper them a request. They reply with only the entries changed since then.
-3. Requests run one at a time so a full guild logging in doesn't flood the server.
-4. Entries merge by field group. The *reason* fields use the newest edit. The *profile* fields use the freshest sighting. *Sightings* from everyone are combined.
+3. Players who trust each other also whisper a hello to each other on login. The hello says whether the sender trusts the recipient, and that is how mutual trust is detected. They then pull deltas the same way and send live changes directly. A hello to an offline player fails quietly.
+4. Requests run one at a time so a full guild logging in doesn't flood the server.
+5. Entries merge by field group. The *reason* fields use the newest edit. The *profile* fields use the freshest sighting. *Sightings* from everyone are combined.
 
 A sighting can never change the reason someone is listed.
 

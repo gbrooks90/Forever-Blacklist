@@ -219,4 +219,43 @@ Q.FBL:Fire("LOGIN")
 check(Q.FBL.db.entries["evil-twin"] == nil and Q.FBL.IsBlacklisted("Evil Twin") ~= nil, "'Evil-Twin' migrated to 'Evil Twin'")
 check(Q.FBL.IsTrusted("Good Pal"), "trusted 'Good-Pal' migrated")
 
+-- Mutual trust: two players with no guild, group or channel in common
+clients = {}
+local Dn = newEnv("Dana Stone", false); clients["Dana Stone"] = Dn
+local El = newEnv("Eli Fox", false); clients["Eli Fox"] = El
+tick(15)
+Dn.FBL.SaveEntry({name="Before Trust", category="SCAM"})
+tick(5)
+check(El.FBL.db.entries["before trust-forever"] == nil, "nothing shared before trust")
+Dn.FBL.SetTrusted("Eli Fox", true)
+tick(5)
+check(not Dn.FBL.IsMutual("Eli Fox"), "one-sided trust is not mutual")
+El.FBL.SetTrusted("Dana Stone", true)
+tick(30)
+check(Dn.FBL.IsMutual("Eli Fox") and El.FBL.IsMutual("Dana Stone"), "mutual trust established both ways")
+check(El.FBL.IsBlacklisted("Before Trust") ~= nil, "existing entries pulled automatically once mutual")
+check(#El.FBL.db.inbox == 0, "mutual entries skipped the inbox")
+Dn.FBL.SaveEntry({name="Live One", category="GRIEF", comment="live"})
+tick(5)
+check(El.FBL.IsBlacklisted("Live One") ~= nil, "live entry whispered to mutual peer")
+El.FBL.SaveEntry({name="From Eli", category="TOXIC"})
+tick(5)
+check(Dn.FBL.IsBlacklisted("From Eli") ~= nil, "works in both directions")
+-- Eli logs off; Dana adds entries; Eli logs back in and catches up without asking
+clients["Eli Fox"] = nil
+Dn.FBL.Comm.online["eli fox-forever"] = nil
+for i = 1, 6 do Dn.FBL.SaveEntry({name="Offline Add"..string.char(96+i), category="SPAM"}) end
+tick(5)
+clients["Eli Fox"] = El
+El.FBL:Fire("LOGIN")
+tick(60)
+check(El.FBL.IsBlacklisted("Offline Adda") and El.FBL.IsBlacklisted("Offline Addf"), "caught up on login with no request")
+-- untrust stops direct sync
+El.FBL.SetTrusted("Dana Stone", false)
+tick(5)
+check(not Dn.FBL.IsMutual("Eli Fox"), "untrust is announced")
+Dn.FBL.SaveEntry({name="After Untrust", category="BOT"})
+tick(5)
+check(El.FBL.db.entries["after untrust-forever"] == nil, "no direct sync after untrust")
+
 print(FAILED and "SOME TESTS FAILED" or "ALL TESTS PASSED")

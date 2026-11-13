@@ -177,8 +177,46 @@ function Comm.DataStamp()
     return m
 end
 
+---------------------------------------------------------------------------
+-- Mutual trust: direct whisper sync with players who trust us back,
+-- wherever they are (no shared guild, group or channel needed).
+---------------------------------------------------------------------------
+local online = {}  -- key -> time we last heard from them this session
+Comm.online = online
+
+local function sharesBroadcast(p)
+    local o = FBL.opt
+    if p.guildmate and o.syncGuild and IsInGuild() then return true end
+    if o.syncGroup and (IsInGroup() or IsInRaid()) and UnitInParty then
+        local ok, inGroup = pcall(UnitInParty, FBL.ShortName(p.name))
+        if ok and inGroup then return true end
+    end
+    return false
+end
+
+--- Mutually trusted players who are online and not already reached by a broadcast.
+function Comm.MutualTargets()
+    local list = {}
+    if not FBL.opt.syncEnabled or not FBL.opt.syncWhisperTrusted then return list end
+    for key, name in pairs(FBL.db.trusted) do
+        local p = FBL.db.peers[key]
+        if p and p.trustsMe and online[key] and not sharesBroadcast(p) then
+            list[#list + 1] = name
+        end
+    end
+    return list
+end
+
+local function sendMutual(kind, payload)
+    for _, name in ipairs(Comm.MutualTargets()) do
+        Comm.Whisper(kind, payload, name, "high")
+    end
+end
+
 function Comm.BroadcastEntry(e)
-    broadcast("E", FBL.ToWire(e, 3), "high")
+    local w = FBL.ToWire(e, 3)
+    broadcast("E", w, "high")
+    sendMutual("E", w)
 end
 
 local lastSightShare = {}
@@ -191,11 +229,15 @@ function Comm.BroadcastSighting(e)
     -- strip "why" fields: a sighting must never change the reason for a listing
     w.ca, w.sv, w.co, w.tg, w.al, w.d, w.ub, w.ua = nil, nil, nil, nil, nil, nil, nil, nil
     broadcast("S", w, "high")
+    sendMutual("S", w)
 end
 
-function Comm.SendHello(wantReply, whisperTarget)
+function Comm.SendHello(wantReply, whisperTarget, trustFlag)
     local payload = { v = FBL.PROTOCOL, ver = FBL.version, c = FBL.CountEntries(), m = Comm.DataStamp(), r = wantReply or nil }
     if whisperTarget then
+        -- a whispered hello also tells them whether we trust them
+        if trustFlag == nil then trustFlag = FBL.IsTrusted(whisperTarget) end
+        payload.tr = trustFlag and true or false
         Comm.Whisper("H", payload, whisperTarget, "high")
     else
         broadcast("H", payload, "high")
@@ -221,6 +263,7 @@ local function peerKey(sender) local _, k = FBL.NormalizeName(sender); return k 
 local function touchPeer(sender, dist, hello)
     local k = peerKey(sender)
     if not k then return end
+    online[k] = Now()
     local p = FBL.db.peers[k] or { name = FBL.NormalizeName(sender) }
     p.lastSeen = Now()
     p.via = dist
@@ -320,9 +363,27 @@ local handlers = {}
 handlers.H = function(sender, dist, p)
     local peer, key = touchPeer(sender, dist, p)
     if not peer then return end
-    if p.r and dist ~= "WHISPER" then
-        -- reply directly so the newcomer learns about us too (slight jitter)
-        C_Timer.After(1 + math.random() * 4, function() Comm.SendHello(false, sender) end)
+    if dist == "WHISPER" and p.tr ~= nil then
+        local before = peer.trustsMe
+        peer.trustsMe = p.tr == true
+        if peer.trustsMe ~= before then
+            if peer.trustsMe and FBL.IsTrusted(sender) then
+                Comm.Log("Mutual trust with %s - syncing automatically", FBL.ShortName(sender))
+                if FBL.opt.autoAcceptMutual then FBL.AcceptInboxFrom(sender) end
+            elseif not peer.trustsMe then
+                Comm.Log("%s no longer trusts you", FBL.ShortName(sender))
+            end
+            FBL:Fire("PEERS_CHANGED")
+        end
+    end
+    if p.r then
+        if dist ~= "WHISPER" then
+            -- reply directly so the newcomer learns about us too (slight jitter)
+            C_Timer.After(1 + math.random() * 4, function() Comm.SendHello(false, sender) end)
+        elseif FBL.IsTrusted(sender) then
+            -- a trusted player logged in and said hi: answer so both sides pull deltas
+            C_Timer.After(0.5 + math.random(), function() Comm.SendHello(false, sender) end)
+        end
     end
     if (tonumber(p.m) or 0) > (FBL.db.lastSync[key] or 0) and accepts(sender, dist) then
         queueRequest(sender, key, tonumber(p.m))
@@ -433,6 +494,7 @@ end
 local function onPlayerNotFound(target)
     dropTarget(target)
     local _, key = FBL.NormalizeName(target)
+    if key then online[key] = nil end
     for k, r in ipairs(requestQueue) do
         if select(2, FBL.NormalizeName(r.peer)) == key then table.remove(requestQueue, k) break end
     end
@@ -503,17 +565,33 @@ FBL:On("LOGIN", function()
         Comm.JoinChannel()
         C_Timer.After(4, function()
             Comm.SendHello(true)
-            -- trusted friends who are online but not in our guild/group
-            if FBL.opt.syncWhisperTrusted and C_FriendList and C_FriendList.GetNumFriends then
-                for i = 1, C_FriendList.GetNumFriends() do
-                    local info = C_FriendList.GetFriendInfoByIndex(i)
-                    if info and info.connected and FBL.IsTrusted(info.name) then
-                        Comm.SendHello(true, info.name)
-                    end
-                end
-            end
+            Comm.HelloTrusted()
         end)
     end)
+end)
+
+--- Whisper a hello to every trusted player. Offline ones simply fail quietly
+-- (the "No player named..." reply is filtered); online ones answer and both
+-- sides pull whatever changed.
+function Comm.HelloTrusted()
+    if not FBL.opt.syncEnabled or not FBL.opt.syncWhisperTrusted then return end
+    local i = 0
+    for _, name in pairs(FBL.db.trusted) do
+        i = i + 1
+        C_Timer.After(i * 0.3, function() Comm.SendHello(true, name, true) end)
+    end
+end
+
+-- Trusting someone tells them right away (and starts syncing if it's mutual);
+-- untrusting tells them too, so they stop sending to us directly.
+FBL:On("TRUST_CHANGED", function(name, trusted, was)
+    if not name or not FBL.opt.syncEnabled or trusted == was then return end
+    if trusted then
+        Comm.SendHello(true, name, true)
+        if FBL.opt.autoAcceptMutual and FBL.IsMutual(name) then FBL.AcceptInboxFrom(name) end
+    else
+        Comm.SendHello(false, name, false)
+    end
 end)
 
 local lastGroupHello = 0

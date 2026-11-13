@@ -324,7 +324,7 @@ function FBL.MergeRemote(remote, sender, force)
         if not force then
             local rej = db.rejected[key]
             if rej and rej >= (remote.updatedAt or 0) then return "ignored" end
-            if FBL.opt.reviewIncoming then
+            if FBL.opt.reviewIncoming and not (FBL.opt.autoAcceptMutual and FBL.IsMutual(sender)) then
                 FBL.AddToInbox(remote, sender)
                 return "inbox"
             end
@@ -409,6 +409,19 @@ function FBL.RejectInbox(index)
     FBL:Fire("INBOX_CHANGED")
 end
 
+--- Accepts everything waiting from one sender (used when trust becomes mutual).
+function FBL.AcceptInboxFrom(sender)
+    local _, key = FBL.NormalizeName(sender)
+    if not key then return 0 end
+    local n = 0
+    for i = #FBL.db.inbox, 1, -1 do
+        local item = FBL.db.inbox[i]
+        local _, k = FBL.NormalizeName(item.from or "")
+        if k == key then FBL.AcceptInbox(i); n = n + 1 end
+    end
+    return n
+end
+
 function FBL.AcceptAllInbox()
     while #FBL.db.inbox > 0 do FBL.AcceptInbox(1) end
 end
@@ -425,8 +438,17 @@ end
 function FBL.SetTrusted(name, trusted)
     local full, key = FBL.NormalizeName(name)
     if not key then return end
+    local was = FBL.db.trusted[key] ~= nil
     FBL.db.trusted[key] = trusted and full or nil
-    FBL:Fire("TRUST_CHANGED")
+    FBL:Fire("TRUST_CHANGED", full, trusted and true or false, was)
+end
+
+--- True when we trust them and they have told us they trust us back.
+function FBL.IsMutual(sender)
+    if not FBL.IsTrusted(sender) then return false end
+    local _, key = FBL.NormalizeName(sender)
+    local p = key and FBL.db.peers[key]
+    return p ~= nil and p.trustsMe == true
 end
 
 local function isFriend(sender)
