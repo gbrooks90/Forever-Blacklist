@@ -141,7 +141,7 @@ end
 --- Reads everything we can learn about a player unit. Secret values are skipped.
 function FBL.ReadUnit(unit)
     if not unit or not Safe(UnitExists(unit)) or not Safe(UnitIsPlayer(unit)) then return nil end
-    local name, realm = UnitName(unit)
+    local name, realm = FBL.UnitName(unit)
     name, realm = Safe(name), Safe(realm)
     if not name or name == "" or name == UNKNOWNOBJECT then return nil end
     local info = { name = name, realm = realm }
@@ -489,4 +489,60 @@ FBL:On("DB_READY", function()
     for _, p in pairs(db.peers) do p.name = fix(p.name) end
     for k, n in pairs(db.trusted) do db.trusted[k] = fix(n) end
     for _, item in ipairs(db.inbox) do item.entry.name = fix(item.entry.name) end
+end)
+
+---------------------------------------------------------------------------
+-- Migration: v1.0.x stored WoW Forever names as "First-Last" (the surname
+-- was mistaken for a realm). Re-key them as "First Last-Realm".
+---------------------------------------------------------------------------
+local function fixHyphenName(name)
+    if not name or not FBL.surnameMode then return nil end
+    local first, second = name:match("^([^%s%-]+)%-([^%-]+)$")
+    if not first or second:find("[%d%s]") or second:lower() == FBL.PlayerRealm():lower() then return nil end
+    return FBL.NormalizeName(first .. " " .. second)
+end
+
+FBL:On("LOGIN", function()
+    if not FBL.surnameMode then return end
+    local db, moved = FBL.db, 0
+    local function fixField(v) return fixHyphenName(v) or v end
+    local todo = {}
+    for key, e in pairs(db.entries) do todo[#todo + 1] = { key, e } end
+    for _, pair in ipairs(todo) do
+        local key, e = pair[1], pair[2]
+        local full, newKey = fixHyphenName(e.name)
+        if full and newKey ~= key then
+            local existing = db.entries[newKey]
+            db.entries[key] = nil
+            e.name, e.key = full, newKey
+            if not existing or (e.updatedAt or 0) >= (existing.updatedAt or 0) then
+                if existing then for _, s in ipairs(existing.sightings or {}) do FBL.AddSighting(e, s) end end
+                db.entries[newKey] = e
+            else
+                for _, s in ipairs(e.sightings or {}) do FBL.AddSighting(existing, s) end
+            end
+            moved = moved + 1
+        end
+    end
+    for _, e in pairs(db.entries) do
+        e.addedBy, e.updatedBy = fixField(e.addedBy), fixField(e.updatedBy)
+        for _, s in ipairs(e.sightings or {}) do s.by = fixField(s.by) end
+    end
+    for _, tbl in ipairs({ db.trusted, db.peers, db.lastSync }) do
+        local items = {}
+        for k, v in pairs(tbl) do items[#items + 1] = { k, v } end
+        for _, kv in ipairs(items) do
+            local k, v = kv[1], kv[2]
+            local full, newKey = fixHyphenName(type(v) == "table" and v.name or (type(v) == "string" and v) or k)
+            if full and newKey ~= k then
+                tbl[k] = nil
+                if type(v) == "table" then v.name = full elseif type(v) == "string" then v = full end
+                tbl[newKey] = v
+            end
+        end
+    end
+    if moved > 0 then
+        FBL.Print("Fixed %d name%s saved as First-Last.", moved, moved == 1 and "" or "s")
+        FBL:Fire("ENTRY_CHANGED", nil, "migrated")
+    end
 end)

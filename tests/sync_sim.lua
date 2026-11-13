@@ -34,7 +34,15 @@ local function newEnv(playerName, guild)
       end},
     IsInGuild=function() return guild end, IsInGroup=function() return false end, IsInRaid=function() return false end,
     GetChannelName=function() return 0 end, LE_PARTY_CATEGORY_INSTANCE=2,
-    UnitName=function() return playerName end,
+    UnitName=function(unit)
+      if unit == "player" then
+        local first, last = playerName:match("^(%S+) (%S+)$")
+        if first then return first, last end   -- WoW Forever: surname as 2nd value
+        return playerName
+      end
+      local u = env._units and env._units[unit]
+      if u then return u[1], u[2], u[3] end
+    end,
     Enum={}, RAID_CLASS_COLORS={},
   }
   setmetatable(env, {__index=base})
@@ -192,5 +200,23 @@ A.FBL.Comm.Whisper("H", {v=1}, "Gone Guy")
 local hidden = A.FBL.Comm._systemFilter(nil, "CHAT_MSG_SYSTEM", "No player named 'Gone Guy' is currently playing.")
 check(hidden == true, "offline-peer error hidden")
 check(A.FBL.Comm._systemFilter(nil, "CHAT_MSG_SYSTEM", "No player named 'Random Person' is currently playing.") == false, "unrelated not-found errors still shown")
+
+-- WoW Forever unit API returns the surname as a separate value
+check(Q.FBL.surnameMode == true, "surname mode detected from own character")
+check(A.FBL.surnameMode == false, "one-word client stays in normal mode")
+check(Q.FBL.playerName == "Quazi Bro-Forever", "own name joined with a space ("..tostring(Q.FBL.playerName)..")")
+Q._units = { target = {"Gank", "Lord"}, focus = {"Gank", "CAMWOWUS2Realm3PvE"}, mouseover = {"Gank Lord", "OtherRealm"} }
+check(Q.FBL.UnitName("target") == "Gank Lord", "target 'Gank','Lord' -> 'Gank Lord'")
+check(Q.FBL.NormalizeName(Q.FBL.UnitName("target")) == "Gank Lord-Forever", "no hyphen between first and last")
+local n2, r2 = Q.FBL.UnitName("focus")
+check(n2 == "Gank" and r2 == "CAMWOWUS2Realm3PvE", "realm-looking second value is not treated as a surname")
+local n3, r3 = Q.FBL.UnitName("mouseover")
+check(n3 == "Gank Lord" and r3 == "OtherRealm", "already-joined name keeps its realm")
+-- migration of entries saved by v1.0.x as "First-Last"
+Q.FBL.db.entries["evil-twin"] = { key = "evil-twin", name = "Evil-Twin", category = "GRIEF", updatedAt = 1, sightings = {} }
+Q.FBL.db.trusted["good-pal"] = "Good-Pal"
+Q.FBL:Fire("LOGIN")
+check(Q.FBL.db.entries["evil-twin"] == nil and Q.FBL.IsBlacklisted("Evil Twin") ~= nil, "'Evil-Twin' migrated to 'Evil Twin'")
+check(Q.FBL.IsTrusted("Good Pal"), "trusted 'Good-Pal' migrated")
 
 print(FAILED and "SOME TESTS FAILED" or "ALL TESTS PASSED")

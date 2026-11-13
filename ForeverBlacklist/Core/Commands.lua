@@ -16,7 +16,7 @@ local HELP = {
 
 local function targetName()
     if not UnitIsPlayer("target") then return nil end
-    local n, r = UnitName("target")
+    local n, r = FBL.UnitName("target")
     return FBL.Safe(n), FBL.Safe(r)
 end
 

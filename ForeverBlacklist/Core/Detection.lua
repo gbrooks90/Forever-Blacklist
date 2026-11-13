@@ -78,7 +78,7 @@ end
 local function checkUnit(unit, context)
     if not FBL.db or not unit then return end
     if not Safe(UnitIsPlayer(unit)) then return end
-    local name, realm = UnitName(unit)
+    local name, realm = FBL.UnitName(unit)
     name, realm = Safe(name), Safe(realm)
     if not name then return end
     local e = FBL.IsBlacklisted(name, realm)
@@ -159,7 +159,7 @@ function D.RefreshNameplates()
         local unit = plate.namePlateUnitToken or (plate.UnitFrame and plate.UnitFrame.unit)
         unit = Safe(unit)
         if unit then
-            local name, realm = UnitName(unit)
+            local name, realm = FBL.UnitName(unit)
             local e = FBL.IsBlacklisted(Safe(name), Safe(realm))
             if e then attachMarker(unit, e) end
         end
@@ -191,7 +191,7 @@ FBL:RegisterEvent("GROUP_ROSTER_UPDATE", function()
     local count = IsInRaid() and n or (n - 1)
     for i = 1, count do
         local unit = prefix .. i
-        local name, realm = UnitName(unit)
+        local name, realm = FBL.UnitName(unit)
         name, realm = Safe(name), Safe(realm)
         if name then
             local e = FBL.IsBlacklisted(name, realm)
@@ -281,7 +281,7 @@ FBL:RegisterEvent("PARTY_INVITE_REQUEST", function(_, name)
 end)
 
 FBL:RegisterEvent("TRADE_SHOW", function()
-    local name, realm = UnitName("NPC")
+    local name, realm = FBL.UnitName("NPC")
     local e = FBL.IsBlacklisted(Safe(name), Safe(realm))
     if not e then return end
     if FBL.opt.autoDeclineTrades then
@@ -309,7 +309,7 @@ local function addTooltipLines(tooltip)
     local ok, _, unit = pcall(tooltip.GetUnit, tooltip)
     unit = ok and Safe(unit)
     if not unit or not Safe(UnitIsPlayer(unit)) then return end
-    local name, realm = UnitName(unit)
+    local name, realm = FBL.UnitName(unit)
     local e = FBL.IsBlacklisted(Safe(name), Safe(realm))
     if not e then return end
     local cat = FBL.Category(e.category)
@@ -343,9 +343,9 @@ local MENU_TAGS = {
 
 local function menuName(ctx)
     if not ctx then return end
-    local name, realm = Safe(ctx.name), Safe(ctx.server)
+    local name, realm = FBL.JoinName(ctx.name, ctx.server)
     if ctx.unit and (not name) then
-        name, realm = UnitName(ctx.unit)
+        name, realm = FBL.UnitName(ctx.unit)
         name, realm = Safe(name), Safe(realm)
     end
     return name, realm

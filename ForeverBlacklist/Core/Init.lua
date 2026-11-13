@@ -201,6 +201,40 @@ function FBL.Category(key)
 end
 
 ---------------------------------------------------------------------------
+-- WoW Forever names: every character is "First Last". The unit API returns
+-- the last name as a separate value (where the realm used to be), so we join
+-- them with a space. Detected from our own character, so the addon still
+-- behaves normally on clients where the second value really is a realm.
+---------------------------------------------------------------------------
+local function looksLikeSurname(s)
+    return type(s) == "string" and s ~= "" and not s:find("[%d%s%-]")
+end
+
+function FBL.DetectSurnameMode()
+    local a, b = UnitName("player")
+    a, b = FBL.Safe(a), FBL.Safe(b)
+    if a then FBL.surnameMode = looksLikeSurname(b) and not a:find(" ") end
+    return FBL.surnameMode
+end
+
+--- Joins a (name, second) pair from the game into ("First Last", realm).
+function FBL.JoinName(name, second, third)
+    name, second, third = FBL.Safe(name), FBL.Safe(second), FBL.Safe(third)
+    if not name then return nil end
+    if FBL.surnameMode == nil then FBL.DetectSurnameMode() end
+    if FBL.surnameMode and looksLikeSurname(second) and not name:find(" ")
+        and second:lower() ~= FBL.PlayerRealm():lower() then
+        return name .. " " .. second, third
+    end
+    return name, second
+end
+
+--- Use instead of UnitName(): returns ("First Last", realm-or-nil).
+function FBL.UnitName(unit)
+    return FBL.JoinName(UnitName(unit))
+end
+
+---------------------------------------------------------------------------
 -- Event dispatcher + simple callback bus for UI refreshes
 ---------------------------------------------------------------------------
 local eventFrame = CreateFrame("Frame")
@@ -251,7 +285,8 @@ FBL:RegisterEvent("ADDON_LOADED", function(_, name)
 end)
 
 FBL:RegisterEvent("PLAYER_LOGIN", function()
-    FBL.playerName = FBL.NormalizeName(UnitName("player"))
+    FBL.DetectSurnameMode()
+    FBL.playerName = FBL.NormalizeName(FBL.UnitName("player"))
     FBL:Fire("LOGIN")
     local count = FBL.CountEntries and FBL.CountEntries() or 0
     FBL.Print("v%s loaded - %d blacklisted. Type |cffffd100/fbl|r to open.", FBL.version, count)
