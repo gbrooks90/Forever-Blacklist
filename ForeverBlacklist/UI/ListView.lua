@@ -47,24 +47,29 @@ local function createRow(row)
     row.faction:SetSize(16, 16)
     row.faction:SetPoint("BOTTOMRIGHT", row.icon, 5, -5)
 
-    row.name = W.Text(row, "GameFontNormal", "")
-    row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 10, 0)
-    row.sub = W.Text(row, "GameFontDisableSmall", "")
-    row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
-    row.cat = W.Text(row, "GameFontNormalSmall", "")
-    row.cat:SetPoint("TOPRIGHT", -8, -8)
-    row.cat:SetJustifyH("RIGHT")
-    row.seen = W.Text(row, "GameFontDisableSmall", "")
-    row.seen:SetPoint("BOTTOMRIGHT", -8, 8)
-    row.seen:SetJustifyH("RIGHT")
+    -- right side: severity skulls (top) and reason (bottom)
     row.skulls = {}
     for i = 1, 5 do
-        local s = row:CreateTexture(nil, "ARTWORK")
-        s:SetSize(10, 10)
-        s:SetTexture(T.SKULL)
-        s:SetPoint("BOTTOMRIGHT", row.seen, "BOTTOMLEFT", -6 - (5 - i) * 11, 1)
-        row.skulls[i] = s
+        local sk = row:CreateTexture(nil, "ARTWORK")
+        sk:SetSize(11, 11)
+        sk:SetTexture(T.SKULL)
+        sk:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8 - (5 - i) * 12, -9)
+        row.skulls[i] = sk
     end
+    row.cat = W.Text(row, "GameFontNormalSmall", "")
+    row.cat:SetPoint("BOTTOMRIGHT", -8, 9)
+    row.cat:SetJustifyH("RIGHT")
+    row.cat:SetWordWrap(false)
+
+    -- left side: name (top) and details (bottom), each clipped before the right column
+    row.name = W.Text(row, "GameFontNormal", "")
+    row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 10, 1)
+    row.name:SetPoint("RIGHT", row.skulls[1], "LEFT", -8, 0)
+    row.name:SetWordWrap(false)
+    row.sub = W.Text(row, "GameFontDisableSmall", "")
+    row.sub:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 10, 1)
+    row.sub:SetPoint("RIGHT", row.cat, "LEFT", -8, 0)
+    row.sub:SetWordWrap(false)
     row:SetScript("OnClick", function(self)
         FBL.selectedKey = self.key
         View.Refresh(View.frame)
@@ -83,12 +88,11 @@ local function initRow(row, e)
     if e.level then bits[#bits + 1] = tostring(e.level) end
     if e.race then bits[#bits + 1] = e.race end
     if e.class then bits[#bits + 1] = e.class end
-    if e.guild then bits[#bits + 1] = "<" .. e.guild .. ">" end
-    row.sub:SetText(#bits > 0 and table.concat(bits, " ") or "Details unknown - target them to fill in")
+    local last = FBL.LastSighting(e)
+    local seen = last and ("seen " .. FBL.TimeAgo(last.t)) or "never seen"
+    row.sub:SetText((#bits > 0 and (table.concat(bits, " ") .. "  |cff666666-|r  ") or "") .. seen)
     local cat = FBL.Category(e.category)
     row.cat:SetText(("|cff%s%s|r"):format(cat.color, cat.label))
-    local last = FBL.LastSighting(e)
-    row.seen:SetText(last and FBL.TimeAgo(last.t) or "never seen")
     local c = FBL.SEVERITY_COLORS[e.severity or 1]
     for i, s in ipairs(row.skulls) do
         if i <= (e.severity or 1) then s:SetVertexColor(c[1], c[2], c[3]); s:SetAlpha(1)

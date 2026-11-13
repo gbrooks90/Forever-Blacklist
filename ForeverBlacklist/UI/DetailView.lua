@@ -6,7 +6,18 @@ local DV = {}
 FBL.DetailView = DV
 
 local STAT_ROWS = {
-    { "Realm", function(e) return e.name and e.name:match("%-(.+)$") end },
+    { function() return FBL.surnameMode and "Ruleset" or "Realm" end, function(e)
+        local realm = e.name and e.name:match("%-(.+)$")
+        if realm and FBL.surnameMode then
+            -- WoW Forever is realmless; internal names look like "CAMWOWUS2Realm3PvE"
+            local lower = realm:lower()
+            for _, rs in ipairs({ { "hardcore", "Hardcore" }, { "pvp", "PvP" }, { "pve", "PvE" }, { "rp", "Roleplay" } }) do
+                if lower:sub(-#rs[1]) == rs[1] then return rs[2] end
+            end
+            return nil
+        end
+        return realm
+    end },
     { "Gender", function(e) return e.sex end },
     { "Title", function(e) return e.title end },
     { "PvP rank", function(e) return e.pvpRank end },
@@ -185,7 +196,7 @@ function DV.Create(parent)
     det:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 330, -10)
     d.stats = {}
     for i, def in ipairs(STAT_ROWS) do
-        local k = W.Text(body, "GameFontDisableSmall", def[1])
+        local k = W.Text(body, "GameFontDisableSmall", type(def[1]) == "function" and def[1]() or def[1])
         k:SetPoint("TOPLEFT", det, "BOTTOMLEFT", 0, -8 - (i - 1) * 16)
         local v = W.Text(body, "GameFontHighlightSmall", "")
         v:SetPoint("LEFT", k, "LEFT", 74, 0)
@@ -249,7 +260,6 @@ function DV.Show(d, e, forceFields)
     local r, g, b = FBL.ClassColor(e.classFile)
     T.SetClassIcon(d.icon, e.classFile)
     d.iconFrame:SetBackdropBorderColor(r, g, b, 1)
-    d.headerBg:SetVertexColor(1, 1, 1, 1)
     T.SetRaceIcon(d.race, e.raceFile, e.sex)
     d.name:SetText(FBL.ShortName(e.name))
     d.name:SetTextColor(r, g, b)

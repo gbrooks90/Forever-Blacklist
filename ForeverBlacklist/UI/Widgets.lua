@@ -65,8 +65,16 @@ function W.Button(parent, text, width, height, style)
     hl:SetVertexColor(1, 1, 1, 0.07)
     b:SetScript("OnMouseDown", function(self) if self:IsEnabled() then self.text:SetPoint("CENTER", 1, -1) end end)
     b:SetScript("OnMouseUp", function(self) self.text:SetPoint("CENTER") end)
-    hooksecurefunc(b, "Disable", function(self) self.text:SetTextColor(0.45, 0.45, 0.45) end)
-    hooksecurefunc(b, "Enable", function(self) self.text:SetTextColor(1, 1, 1) end)
+    hooksecurefunc(b, "Disable", function(self)
+        self.text:SetTextColor(0.5, 0.5, 0.5)
+        self:SetBackdropColor(0.12, 0.12, 0.14, 0.9)
+        self:SetBackdropBorderColor(0.25, 0.25, 0.28, 1)
+    end)
+    hooksecurefunc(b, "Enable", function(self)
+        self.text:SetTextColor(1, 1, 1)
+        self:SetBackdropColor(T.Color(self.bgColor))
+        self:SetBackdropBorderColor(T.Color(self.borderColor))
+    end)
     return b
 end
 
@@ -279,6 +287,10 @@ function W.List(parent, rowHeight, init, create)
         init(row, data)
     end)
     ScrollUtil.InitScrollBoxListWithScrollBar(box, bar, view)
+    -- hide the scrollbar when everything fits
+    if ScrollUtil.AddManagedScrollBarVisibilityBehavior then
+        ScrollUtil.AddManagedScrollBarVisibilityBehavior(box, bar)
+    end
     box.bar = bar
     box.SetItems = function(self, items)
         local copy = {}
