@@ -154,8 +154,13 @@ function FBL.NormalizeName(name, realm)
     if not realm or realm == "" then realm = FBL.PlayerRealm() end
     realm = realm:gsub("[%s%-']", "")
     -- capitalise first letter, keep UTF-8 tail untouched
-    local first, rest = name:match("^([\1-\127\194-\244][\128-\191]*)(.*)$")
-    if first then name = first:upper() .. rest:lower() end
+    -- WoW Forever names are "First Last": capitalise each part, collapse extra spaces
+    name = name:gsub("%s+", " ")
+    name = name:gsub("[^ ]+", function(word)
+        local first, rest = word:match("^([\1-\127\194-\244][\128-\191]*)(.*)$")
+        if first then return first:upper() .. rest:lower() end
+        return word
+    end)
     local full = name .. "-" .. realm
     return full, full:lower(), name, realm
 end

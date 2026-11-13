@@ -165,4 +165,32 @@ local C = newEnv("Carol", false); clients.Carol = C
 local counts = C.FBL.ImportString(str)
 check(counts and counts.added == A.FBL.CountEntries(), "import added "..(counts and counts.added or "nil").." of "..A.FBL.CountEntries())
 
+-- WoW Forever "First Last" names
+check(N("quazi bro") == "Quazi Bro-Forever", "two-word name keeps both capitals")
+check(N("Quazi   Bro-CAMWOWUS2Realm3PvE") == "Quazi Bro-CAMWOWUS2Realm3PvE", "two-word name with realm")
+local Q = newEnv("Quazi Bro", true); clients["Quazi Bro"] = Q
+Q.FBL.opt.reviewIncoming = false
+local sentTargets = {}
+local origSend = Q.C_ChatInfo.SendAddonMessage
+for _, c in pairs(clients) do
+  local send = c.C_ChatInfo.SendAddonMessage
+  rawset(c, "C_ChatInfo", {RegisterAddonMessagePrefix=function() end, SendAddonMessage=function(p, m, d, t)
+    if d == "WHISPER" then sentTargets[t] = true end
+    return send(p, m, d, t)
+  end})
+end
+Q.FBL.Comm.SendHello(true)
+tick(60)
+check(Q.FBL.IsBlacklisted("Scammy") ~= nil, "Quazi Bro pulled entries via sync")
+local bad = {}
+for t in pairs(sentTargets) do if t:find("%-") or t == "Quazi bro" then bad[#bad+1] = t end end
+check(sentTargets["Quazi Bro"] and #bad == 0, "whispers use exact 'Quazi Bro' with no realm suffix (bad: "..table.concat(bad, ",")..")")
+check(A.FBL.Comm.WhisperTarget("Quazi Bro-Forever") == "Quazi Bro", "own-realm suffix stripped")
+check(A.FBL.Comm.WhisperTarget("Someone Else-OtherRealm") == "Someone Else-OtherRealm", "foreign realm kept")
+-- offline peer: system message is hidden and the queue is cleared
+A.FBL.Comm.Whisper("H", {v=1}, "Gone Guy")
+local hidden = A.FBL.Comm._systemFilter(nil, "CHAT_MSG_SYSTEM", "No player named 'Gone Guy' is currently playing.")
+check(hidden == true, "offline-peer error hidden")
+check(A.FBL.Comm._systemFilter(nil, "CHAT_MSG_SYSTEM", "No player named 'Random Person' is currently playing.") == false, "unrelated not-found errors still shown")
+
 print(FAILED and "SOME TESTS FAILED" or "ALL TESTS PASSED")

@@ -129,9 +129,38 @@ local function broadcast(kind, payload, priority)
     if ch then sendTo(kind, payload, "CHANNEL", ch, priority) end
 end
 
+-- Exact sender strings as the server gave them to us, keyed by our lowercase key.
+local rawNames = {}
+local recentWhispers = {}
+
+--- The name to whisper: the server's own spelling when we have it, and no
+-- realm suffix when it's our own realm (WoW Forever is realmless and its
+-- internal realm names, e.g. "CAMWOWUS2Realm3PvE", aren't valid whisper targets).
+function Comm.WhisperTarget(name)
+    local full, key = FBL.NormalizeName(name)
+    if not key then return nil end
+    local target = rawNames[key] or full
+    local n, r = target:match("^([^%-]+)%-(.+)$")
+    if n and r:gsub("[%s%-']", ""):lower() == FBL.PlayerRealm():lower() then target = n end
+    return target
+end
+
 function Comm.Whisper(kind, payload, target, priority)
     if not FBL.opt.syncEnabled or not target then return end
+    target = Comm.WhisperTarget(target)
+    if not target then return end
+    recentWhispers[target:lower()] = Now()
     sendTo(kind, payload, "WHISPER", target, priority)
+end
+
+--- Drops everything queued for a player who turned out to be offline.
+local function dropTarget(target)
+    local lt = target:lower()
+    for _, q in pairs(queues) do
+        for i = #q, 1, -1 do
+            if q[i].dist == "WHISPER" and (q[i].target or ""):lower() == lt then table.remove(q, i) end
+        end
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -375,8 +404,9 @@ FBL:RegisterEvent("CHAT_MSG_ADDON", function(_, prefix, msg, dist, sender)
     if prefix ~= PREFIX then return end
     msg, sender = Safe(msg), Safe(sender)
     if not msg or not sender then return end
-    local full = FBL.NormalizeName(sender)
+    local full, key = FBL.NormalizeName(sender)
     if not full or full == FBL.playerName then return end
+    rawNames[key] = sender
     stats.received = stats.received + 1
     stats.bytesIn = stats.bytesIn + #msg
     onChunk(full, dist, msg)
@@ -389,6 +419,46 @@ C_Timer.NewTicker(30, function()
         if buf.t < cutoff then partial[k] = nil end
     end
 end)
+
+---------------------------------------------------------------------------
+-- "No player named 'X' is currently playing." - when X is someone we were
+-- syncing with, hide the message, stop sending to them and move on.
+---------------------------------------------------------------------------
+local notFoundPattern
+do
+    local fmt = _G.ERR_CHAT_PLAYER_NOT_FOUND_S or "No player named '%s' is currently playing."
+    notFoundPattern = "^" .. fmt:gsub("([%(%)%.%+%-%*%?%[%]%^%$])", "%%%1"):gsub("%%s", "(.+)") .. "$"
+end
+
+local function onPlayerNotFound(target)
+    dropTarget(target)
+    local _, key = FBL.NormalizeName(target)
+    for k, r in ipairs(requestQueue) do
+        if select(2, FBL.NormalizeName(r.peer)) == key then table.remove(requestQueue, k) break end
+    end
+    if activeRequest and select(2, FBL.NormalizeName(activeRequest.peer)) == key then
+        activeRequest = nil
+        C_Timer.After(1, startNextRequest)
+    end
+    local p = key and FBL.db.peers[key]
+    if p then p.lastSeen = math.min(p.lastSeen or 0, Now() - 3600) end
+end
+
+local function systemFilter(_, _, msg, ...)
+    msg = Safe(msg)
+    local who = msg and msg:match(notFoundPattern)
+    if not who then return false end
+    local t = recentWhispers[who:lower()]
+    if t and Now() - t < 120 then
+        onPlayerNotFound(who)
+        return true
+    end
+    return false
+end
+
+local addSysFilter = _G.ChatFrame_AddMessageEventFilter or (ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter)
+if addSysFilter then pcall(addSysFilter, "CHAT_MSG_SYSTEM", systemFilter) end
+Comm._systemFilter = systemFilter
 
 ---------------------------------------------------------------------------
 -- Custom channel

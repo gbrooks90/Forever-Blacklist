@@ -475,3 +475,18 @@ function FBL.ImportString(str)
     end
     return counts
 end
+
+---------------------------------------------------------------------------
+-- Migration: v1.0.0 lowercased the second word of "First Last" names.
+---------------------------------------------------------------------------
+FBL:On("DB_READY", function()
+    local db = FBL.db
+    local function fix(name) return (name and FBL.NormalizeName(name)) or name end
+    for _, e in pairs(db.entries) do
+        e.name = fix(e.name)
+        e.addedBy, e.updatedBy, e.source = fix(e.addedBy), fix(e.updatedBy), e.source ~= "Import" and fix(e.source) or e.source
+    end
+    for _, p in pairs(db.peers) do p.name = fix(p.name) end
+    for k, n in pairs(db.trusted) do db.trusted[k] = fix(n) end
+    for _, item in ipairs(db.inbox) do item.entry.name = fix(item.entry.name) end
+end)
