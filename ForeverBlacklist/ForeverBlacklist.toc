@@ -2,7 +2,7 @@
 ## Title: |cffe0324bForever|r |cffffffffBlacklist|r
 ## Notes: A shared, synced blacklist for World of Warcraft: Forever. Record why someone is blacklisted, track their details and see their last known sighting on the world map.
 ## Author: gbrooks90
-## Version: 1.1.0
+## Version: 1.1.1
 ## SavedVariables: ForeverBlacklistDB
 ## SavedVariablesPerCharacter: ForeverBlacklistCharDB
 ## IconTexture: Interface\Icons\Ability_Rogue_FeignDeath

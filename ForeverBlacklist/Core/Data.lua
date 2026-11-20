@@ -7,7 +7,7 @@ local Now, Safe = FBL.Now, FBL.Safe
 -- merged by `infoAt` so a fresher sighting from a peer can update them.
 FBL.INFO_FIELDS = {
     "guid", "race", "raceFile", "class", "classFile", "level", "faction", "sex",
-    "guild", "guildRank", "title", "pvpRank",
+    "guild", "guildRank", "title", "pvpRank", "realm",
 }
 -- Fields describing *why* they're listed. Merged last-writer-wins by `updatedAt`.
 FBL.CORE_FIELDS = { "category", "severity", "comment", "tags", "alts", "deleted", "updatedBy" }
@@ -15,7 +15,7 @@ FBL.CORE_FIELDS = { "category", "severity", "comment", "tags", "alts", "deleted"
 -- Short keys keep addon messages small.
 local WIRE = {
     name = "n", guid = "g", race = "r", raceFile = "rf", class = "c", classFile = "cf",
-    level = "l", faction = "f", sex = "x", guild = "gu", guildRank = "gr", title = "ti", pvpRank = "pr",
+    level = "l", faction = "f", sex = "x", guild = "gu", guildRank = "gr", title = "ti", pvpRank = "pr", realm = "rm",
     category = "ca", severity = "sv", comment = "co", tags = "tg", alts = "al", deleted = "d",
     addedBy = "ab", addedAt = "aa", updatedAt = "ua", updatedBy = "ub", infoAt = "ia",
     firstSeen = "fs", seenCount = "sc",
@@ -144,7 +144,7 @@ function FBL.ReadUnit(unit)
     local name, realm = FBL.UnitName(unit)
     name, realm = Safe(name), Safe(realm)
     if not name or name == "" or name == UNKNOWNOBJECT then return nil end
-    local info = { name = name, realm = realm }
+    local info = { name = name, realm = realm or FBL.PlayerRealm() }
     info.guid = Safe(UnitGUID(unit))
     local race, raceFile = UnitRace(unit)
     info.race, info.raceFile = Safe(race), Safe(raceFile)
@@ -499,18 +499,95 @@ function FBL.ImportString(str)
 end
 
 ---------------------------------------------------------------------------
--- Migration: v1.0.0 lowercased the second word of "First Last" names.
+-- Migration: re-key everything by the current NormalizeName rules.
+-- Fixes v1.0.0's "Quazi bro" casing and drops the internal WoW Forever realm
+-- ("Nest Le-CAMWOWUS2Realm3PvE" -> "Nest Le"), merging duplicates.
 ---------------------------------------------------------------------------
-FBL:On("DB_READY", function()
-    local db = FBL.db
-    local function fix(name) return (name and FBL.NormalizeName(name)) or name end
-    for _, e in pairs(db.entries) do
-        e.name = fix(e.name)
-        e.addedBy, e.updatedBy, e.source = fix(e.addedBy), fix(e.updatedBy), e.source ~= "Import" and fix(e.source) or e.source
+local function mergeEntry(dst, src)
+    if (src.updatedAt or 0) > (dst.updatedAt or 0) then
+        for _, f in ipairs(FBL.CORE_FIELDS) do dst[f] = src[f] end
+        dst.updatedAt = src.updatedAt
     end
-    for _, p in pairs(db.peers) do p.name = fix(p.name) end
-    for k, n in pairs(db.trusted) do db.trusted[k] = fix(n) end
-    for _, item in ipairs(db.inbox) do item.entry.name = fix(item.entry.name) end
+    if (src.infoAt or 0) > (dst.infoAt or 0) then
+        for _, f in ipairs(FBL.INFO_FIELDS) do if src[f] ~= nil then dst[f] = src[f] end end
+        dst.infoAt = src.infoAt
+    end
+    for _, sg in ipairs(src.sightings or {}) do FBL.AddSighting(dst, sg) end
+    if (src.addedAt or math.huge) < (dst.addedAt or math.huge) then
+        dst.addedAt, dst.addedBy = src.addedAt, src.addedBy
+    end
+    dst.seenCount = math.max(dst.seenCount or 0, src.seenCount or 0)
+end
+
+function FBL.RekeyDatabase()
+    local db = FBL.db
+    local function fix(name) return (type(name) == "string" and FBL.NormalizeName(name)) or name end
+    local moved = 0
+
+    -- entries
+    local old = db.entries
+    db.entries = {}
+    for _, e in pairs(old) do
+        local suffix = type(e.name) == "string" and e.name:match("^[^%-]+%-(.+)$")
+        local full, key = FBL.NormalizeName(e.name or "")
+        if key then
+            if full ~= e.name then moved = moved + 1 end
+            if suffix and not full:find("-", 1, true) and not e.realm then e.realm = suffix end
+            e.name, e.key = full, key
+            e.addedBy, e.updatedBy = fix(e.addedBy), fix(e.updatedBy)
+            if e.source ~= "Import" then e.source = fix(e.source) end
+            for _, sg in ipairs(e.sightings or {}) do sg.by = fix(sg.by) end
+            local existing = db.entries[key]
+            if existing then
+                if (e.updatedAt or 0) > (existing.updatedAt or 0) then
+                    mergeEntry(e, existing)
+                    db.entries[key] = e
+                else
+                    mergeEntry(existing, e)
+                end
+            else
+                db.entries[key] = e
+            end
+        end
+    end
+
+    -- name-keyed side tables
+    local function rekey(tbl, getName, setName)
+        local items = {}
+        for k, v in pairs(tbl) do items[#items + 1] = { k, v } end
+        for _, kv in ipairs(items) do tbl[kv[1]] = nil end
+        for _, kv in ipairs(items) do
+            local k, v = kv[1], kv[2]
+            local full, key = FBL.NormalizeName(getName(k, v) or k)
+            if key then
+                if setName then v = setName(v, full) end
+                if tbl[key] == nil or type(v) ~= "number" or v > tbl[key] then tbl[key] = v end
+            end
+        end
+    end
+    rekey(db.trusted, function(_, v) return v end, function(_, full) return full end)
+    rekey(db.peers, function(_, v) return v.name end, function(v, full) v.name = full; return v end)
+    rekey(db.lastSync, function(k) return k end)
+    if db.rejected then rekey(db.rejected, function(k) return k end) end
+    for _, item in ipairs(db.inbox) do
+        local full, key = FBL.NormalizeName(item.entry.name or "")
+        if key then item.entry.name, item.entry.key = full, key end
+        item.from = fix(item.from)
+    end
+    return moved
+end
+
+FBL:On("DB_READY", function()
+    local moved = FBL.RekeyDatabase()
+    if moved > 0 then FBL.pendingMigrationNote = moved end
+end)
+
+FBL:On("LOGIN", function()
+    if FBL.pendingMigrationNote then
+        FBL.Print("Tidied %d saved name%s (WoW Forever names no longer carry a realm).",
+            FBL.pendingMigrationNote, FBL.pendingMigrationNote == 1 and "" or "s")
+        FBL.pendingMigrationNote = nil
+    end
 end)
 
 ---------------------------------------------------------------------------

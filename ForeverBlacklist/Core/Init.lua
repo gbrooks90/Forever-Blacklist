@@ -152,9 +152,6 @@ function FBL.NormalizeName(name, realm)
         name = n
         if not realm or realm == "" then realm = r end
     end
-    if not realm or realm == "" then realm = FBL.PlayerRealm() end
-    realm = realm:gsub("[%s%-']", "")
-    -- capitalise first letter, keep UTF-8 tail untouched
     -- WoW Forever names are "First Last": capitalise each part, collapse extra spaces
     name = name:gsub("%s+", " ")
     name = name:gsub("[^ ]+", function(word)
@@ -162,6 +159,14 @@ function FBL.NormalizeName(name, realm)
         if first then return first:upper() .. rest:lower() end
         return word
     end)
+    if realm and realm ~= "" then realm = realm:gsub("[%s%-']", "") else realm = nil end
+    -- Two-part names only exist in WoW Forever, where first + last name is unique
+    -- per region and the realm the game reports is internal and can change
+    -- between sessions. Identify those players by name alone.
+    if name:find(" ", 1, true) then
+        return name, name:lower(), name, realm
+    end
+    realm = realm or FBL.PlayerRealm()
     local full = name .. "-" .. realm
     return full, full:lower(), name, realm
 end

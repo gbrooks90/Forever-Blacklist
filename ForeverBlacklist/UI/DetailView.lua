@@ -7,7 +7,7 @@ FBL.DetailView = DV
 
 local STAT_ROWS = {
     { function() return FBL.surnameMode and "Ruleset" or "Realm" end, function(e)
-        local realm = e.name and e.name:match("%-(.+)$")
+        local realm = e.realm or (e.name and e.name:match("%-(.+)$"))
         if realm and FBL.surnameMode then
             -- WoW Forever is realmless; internal names look like "CAMWOWUS2Realm3PvE"
             local lower = realm:lower()
@@ -135,6 +135,12 @@ function DV.Create(parent)
         if d.entry then FBL.SaveEntry({ name = d.entry.name, severity = v }) end
     end, 18)
     d.severity:SetPoint("TOPRIGHT", -90, -14)
+    -- keep the name (and the lines under it) clear of the severity / reason controls
+    d.name:SetPoint("RIGHT", d.severity, "LEFT", -12, 0)
+    d.name:SetWordWrap(false)
+    d.name:SetJustifyH("LEFT")
+    d.line2:SetWordWrap(false)
+    d.line3:SetWordWrap(false)
     d.category = W.Dropdown(header, 170, function()
         local o = {}
         for _, c in ipairs(FBL.CATEGORIES) do o[#o + 1] = { value = c.key, label = ("|cff%s%s|r"):format(c.color, c.label) } end
@@ -280,6 +286,11 @@ function DV.Show(d, e, forceFields)
     d.line3:ClearAllPoints()
     if d.faction:IsShown() then d.line3:SetPoint("LEFT", d.faction, "RIGHT", 4, 0)
     else d.line3:SetPoint("TOPLEFT", d.line2, "BOTTOMLEFT", 0, -6) end
+    d.line3:SetPoint("RIGHT", d.category, "LEFT", -10, 0)
+    if not d.line2.clamped then
+        d.line2:SetPoint("RIGHT", d.category, "LEFT", -10, 0)
+        d.line2.clamped = true
+    end
 
     d.severity:Refresh()
     d.category:Refresh()

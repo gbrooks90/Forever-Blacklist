@@ -174,8 +174,9 @@ local counts = C.FBL.ImportString(str)
 check(counts and counts.added == A.FBL.CountEntries(), "import added "..(counts and counts.added or "nil").." of "..A.FBL.CountEntries())
 
 -- WoW Forever "First Last" names
-check(N("quazi bro") == "Quazi Bro-Forever", "two-word name keeps both capitals")
-check(N("Quazi   Bro-CAMWOWUS2Realm3PvE") == "Quazi Bro-CAMWOWUS2Realm3PvE", "two-word name with realm")
+check(N("quazi bro") == "Quazi Bro", "two-word name keeps both capitals, no realm")
+check(N("Quazi   Bro-CAMWOWUS2Realm3PvE") == "Quazi Bro", "internal realm dropped from two-word name")
+check(select(2, N("Quazi Bro-ShardA")) == select(2, N("quazi bro-ShardB")), "same player on different internal realms = same key")
 local Q = newEnv("Quazi Bro", true); clients["Quazi Bro"] = Q
 Q.FBL.opt.reviewIncoming = false
 local sentTargets = {}
@@ -194,7 +195,8 @@ local bad = {}
 for t in pairs(sentTargets) do if t:find("%-") or t == "Quazi bro" then bad[#bad+1] = t end end
 check(sentTargets["Quazi Bro"] and #bad == 0, "whispers use exact 'Quazi Bro' with no realm suffix (bad: "..table.concat(bad, ",")..")")
 check(A.FBL.Comm.WhisperTarget("Quazi Bro-Forever") == "Quazi Bro", "own-realm suffix stripped")
-check(A.FBL.Comm.WhisperTarget("Someone Else-OtherRealm") == "Someone Else-OtherRealm", "foreign realm kept")
+check(A.FBL.Comm.WhisperTarget("Someone Else-OtherRealm") == "Someone Else", "unknown two-word name whispered without realm")
+check(A.FBL.Comm.WhisperTarget("Solo-OtherRealm") == "Solo-OtherRealm", "one-word foreign realm kept")
 -- offline peer: system message is hidden and the queue is cleared
 A.FBL.Comm.Whisper("H", {v=1}, "Gone Guy")
 local hidden = A.FBL.Comm._systemFilter(nil, "CHAT_MSG_SYSTEM", "No player named 'Gone Guy' is currently playing.")
@@ -204,10 +206,10 @@ check(A.FBL.Comm._systemFilter(nil, "CHAT_MSG_SYSTEM", "No player named 'Random 
 -- WoW Forever unit API returns the surname as a separate value
 check(Q.FBL.surnameMode == true, "surname mode detected from own character")
 check(A.FBL.surnameMode == false, "one-word client stays in normal mode")
-check(Q.FBL.playerName == "Quazi Bro-Forever", "own name joined with a space ("..tostring(Q.FBL.playerName)..")")
+check(Q.FBL.playerName == "Quazi Bro", "own name joined with a space ("..tostring(Q.FBL.playerName)..")")
 Q._units = { target = {"Gank", "Lord"}, focus = {"Gank", "CAMWOWUS2Realm3PvE"}, mouseover = {"Gank Lord", "OtherRealm"} }
 check(Q.FBL.UnitName("target") == "Gank Lord", "target 'Gank','Lord' -> 'Gank Lord'")
-check(Q.FBL.NormalizeName(Q.FBL.UnitName("target")) == "Gank Lord-Forever", "no hyphen between first and last")
+check(Q.FBL.NormalizeName(Q.FBL.UnitName("target")) == "Gank Lord", "no hyphen between first and last")
 local n2, r2 = Q.FBL.UnitName("focus")
 check(n2 == "Gank" and r2 == "CAMWOWUS2Realm3PvE", "realm-looking second value is not treated as a surname")
 local n3, r3 = Q.FBL.UnitName("mouseover")
@@ -226,7 +228,7 @@ local El = newEnv("Eli Fox", false); clients["Eli Fox"] = El
 tick(15)
 Dn.FBL.SaveEntry({name="Before Trust", category="SCAM"})
 tick(5)
-check(El.FBL.db.entries["before trust-forever"] == nil, "nothing shared before trust")
+check(El.FBL.db.entries["before trust"] == nil, "nothing shared before trust")
 Dn.FBL.SetTrusted("Eli Fox", true)
 tick(5)
 check(not Dn.FBL.IsMutual("Eli Fox"), "one-sided trust is not mutual")
@@ -243,7 +245,7 @@ tick(5)
 check(Dn.FBL.IsBlacklisted("From Eli") ~= nil, "works in both directions")
 -- Eli logs off; Dana adds entries; Eli logs back in and catches up without asking
 clients["Eli Fox"] = nil
-Dn.FBL.Comm.online["eli fox-forever"] = nil
+Dn.FBL.Comm.online["eli fox"] = nil
 for i = 1, 6 do Dn.FBL.SaveEntry({name="Offline Add"..string.char(96+i), category="SPAM"}) end
 tick(5)
 clients["Eli Fox"] = El
@@ -256,6 +258,25 @@ tick(5)
 check(not Dn.FBL.IsMutual("Eli Fox"), "untrust is announced")
 Dn.FBL.SaveEntry({name="After Untrust", category="BOT"})
 tick(5)
-check(El.FBL.db.entries["after untrust-forever"] == nil, "no direct sync after untrust")
+check(El.FBL.db.entries["after untrust"] == nil, "no direct sync after untrust")
+
+-- Migration: saved "First Last-InternalRealm" names lose the realm and merge
+local M = newEnv("Mia Vale", false)
+M.FBL.db.entries = {
+  ["nest le-camwowus2realm3pve"] = { key="nest le-camwowus2realm3pve", name="Nest Le-CAMWOWUS2Realm3PvE", category="GRIEF",
+    severity=5, comment="old", updatedAt=100, sightings={ {t=50, zone="Durotar", by="Quazi Bro-CAMWOWUS2Realm3PvE"} } },
+  ["nest le-camwowus2realm7pve"] = { key="nest le-camwowus2realm7pve", name="Nest Le-CAMWOWUS2Realm7PvE", category="SCAM",
+    severity=3, comment="newer", updatedAt=200, sightings={ {t=60, zone="Barrens"} } },
+  ["solo-forever"] = { key="solo-forever", name="Solo-Forever", updatedAt=1, sightings={} },
+}
+M.FBL.db.trusted = { ["quazi bro-camwowus2realm3pve"] = "Quazi Bro-CAMWOWUS2Realm3PvE" }
+M.FBL.RekeyDatabase()
+local ne = M.FBL.db.entries["nest le"]
+check(ne and ne.name == "Nest Le" and not M.FBL.db.entries["nest le-camwowus2realm3pve"], "'Nest Le-CAMWOW...' re-keyed to 'Nest Le'")
+check(ne and ne.comment == "newer" and #ne.sightings == 2, "duplicates merged (newest reason, all sightings)")
+check(ne and ne.realm and ne.realm:find("PvE$"), "internal realm kept for the Ruleset line")
+check(ne and ne.sightings[2].by == "Quazi Bro", "sighting author cleaned")
+check(M.FBL.db.entries["solo-forever"] ~= nil, "one-word names untouched")
+check(M.FBL.IsTrusted("Quazi Bro"), "trusted list re-keyed")
 
 print(FAILED and "SOME TESTS FAILED" or "ALL TESTS PASSED")
